@@ -8,10 +8,10 @@ connect to Civil 3D, execute CAD commands, or expose local project data.
 
 ## MCP endpoint
 
-After deployment:
+Production endpoint:
 
 ```text
-https://long-fog-31d5.ghdoru11.workers.dev/mcp
+https://long-fog-31d5.thoracic-colt.workers.dev/mcp
 ```
 
 Available tools:
@@ -39,8 +39,12 @@ The local MCP endpoint is `http://localhost:8788/mcp`.
 npm run deploy
 ```
 
-`wrangler.jsonc` targets the existing `long-fog-31d5` placeholder Worker.
-Always run `npm run check` before deployment.
+`wrangler.jsonc` targets the Worker named `long-fog-31d5`. GitHub Actions
+validates every push and deploys permanently when the repository secrets
+`CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` are configured.
+
+The older `long-fog-31d5.ghdoru11.workers.dev` endpoint is a separate
+placeholder Worker and is not the MCP endpoint.
 
 ## Security boundary
 
