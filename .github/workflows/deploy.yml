@@ -17,6 +17,9 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -30,19 +33,48 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Validate Cloudflare credentials
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: |
-          test -n "$CLOUDFLARE_API_TOKEN" || { echo "::error::Missing CLOUDFLARE_API_TOKEN repository secret"; exit 1; }
-          test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo "::error::Missing CLOUDFLARE_ACCOUNT_ID repository secret"; exit 1; }
-
       - name: Typecheck and validate bundle
         run: npm run check
 
-      - name: Deploy long-fog-31d5
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      - name: Deploy long-fog-31d5 permanently
+        if: env.CLOUDFLARE_API_TOKEN != '' && env.CLOUDFLARE_ACCOUNT_ID != ''
         run: npm run deploy
+
+      - name: Deploy and encrypt temporary preview details
+        if: env.CLOUDFLARE_API_TOKEN == '' || env.CLOUDFLARE_ACCOUNT_ID == ''
+        id: temporary
+        shell: bash
+        run: |
+          set +e
+          printf 'yes\n' | npm run deploy -- --temporary > temporary-deploy.txt 2>&1
+          deploy_status=${PIPESTATUS[1]}
+          set -e
+
+          openssl rand 32 > temporary-artifact-key.bin
+          openssl enc -aes-256-cbc -pbkdf2 -salt \
+            -in temporary-deploy.txt \
+            -out temporary-deploy.enc \
+            -pass file:temporary-artifact-key.bin
+          openssl pkeyutl -encrypt \
+            -pubin \
+            -inkey .github/claim-artifact-public.pem \
+            -in temporary-artifact-key.bin \
+            -out temporary-artifact-key.enc \
+            -pkeyopt rsa_padding_mode:oaep \
+            -pkeyopt rsa_oaep_md:sha256
+
+          echo "$deploy_status" > temporary-deploy-status.txt
+          rm -f temporary-deploy.txt temporary-artifact-key.bin
+          exit "$deploy_status"
+
+      - name: Preserve encrypted temporary deployment details
+        if: always() && steps.temporary.outcome != 'skipped'
+        uses: actions/upload-artifact@v4
+        with:
+          name: encrypted-temporary-cloudflare-deployment
+          path: |
+            temporary-deploy.enc
+            temporary-artifact-key.enc
+            temporary-deploy-status.txt
+          retention-days: 1
+          if-no-files-found: error
